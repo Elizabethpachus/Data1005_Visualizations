@@ -1,0 +1,95 @@
+---
+author: "Elizabeth Pachus"
+date: "10/11/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(ggplot2)
+library(maps)
+library(ggthemes)
+library(janitor)
+library(openintro)
+library(tidyverse)
+```
+
+# Milestone 4: Build a ggplot
+
+```{r download, message = FALSE}
+# All the data sets I got are CSV's so I saved them to the project and read them into objects and cleaned up the column headers
+
+# From Gun Violence Archieves
+
+accidental_deaths_data <- read_csv("raw-data/gun_violence_archive_accidental_deaths.csv") %>%
+  clean_names()
+
+children_deaths_data <- read_csv("raw-data/gun_violence_archive_children_deaths.csv") %>%
+  clean_names()
+
+# From the CDC
+
+firearm_data <- read_csv("raw-data/firearm_mortality_by_state.csv") %>%
+  clean_names()
+
+```
+
+
+```{r create_map, message = FALSE}
+
+
+# I decided to create a visualization of where the highest death rate from firearms was for each state
+# For this graphic I only used data from 2017, but for my final project I want to find a way to do the changes
+# across each year.
+
+
+# Following Data Visualization's guideliens on creating a data map
+# First importanting the necessary data and then changing the state names to abbreviations
+
+us_states <- map_data("state") %>% 
+  mutate(state = state2abbr(region))
+
+
+# Joining the firearm data with the us_mad data in order to plot it as a map
+# Sorting for the year 2017 only
+
+map_firearm_data <- inner_join(us_states, firearm_data) %>%
+  filter(year == 2017) %>% 
+  group_by(state)
+
+
+# Following the Data Vis. instructions carefully
+
+firearm_graphic <- ggplot(data = map_firearm_data,
+             mapping = aes(x = long, y = lat, group = group, fill = rate)) + 
+  geom_polygon(color = "gray90", size = 0.1) +
+    coord_map(projection = "albers", lat0 = 39, lat1 = 45)
+
+# Creating the graphic and adding titles and legends and changing the colors for a better looking graph
+
+firearm_graphic1 <- firearm_graphic + labs(title = "Firearm Mortality by State") + theme_map() + labs(fill = "Death Rate per 100,000") + scale_fill_gradient(low = "#ffcccb", high = "#CB454A") +
+        labs(title = "2017 Firearm Mortality by State") +
+        theme(legend.position = "right", plot.title = element_text(hjust = 0.5))
+
+
+# Printing out the graphic
+
+firearm_graphic1
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

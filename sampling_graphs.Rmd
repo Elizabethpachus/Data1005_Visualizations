@@ -1,0 +1,281 @@
+---
+title: "Sampling Graphs"
+author: "Elizabeth Pachus"
+date: "10/7/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+# Installing all my packages!
+
+library(HelpersMG)
+library(lubridate)
+library(dplyr)
+library(janitor)
+library(moderndive)
+library(ggplot2)
+library(gt)
+library(tidyverse)
+```
+
+```{r download_data}
+
+# Downloading the file from github, it only needs to be done once
+
+# Moved it into the polls directory using the terminal
+
+poll_data_nc <- read_csv("polls/elections-poll-nc09-3.csv") %>%
+  clean_names()
+
+```
+
+
+```{r madlib_1}
+
+# Sort the White Dems out and count
+
+dem_nonwhite <- poll_data_nc %>%
+  filter(response == "Dem" && race_edu != "White") %>%
+  nrow()
+
+# Finding the republican with the earliest timestamp
+
+first_repub <- poll_data_nc %>%
+  filter(response == "Rep") %>%
+  arrange(timestamp) %>%
+  select(timestamp) %>%
+  slice(1) %>%
+  pull()
+
+# Change the format to match the required format
+first_repub <- format(first_repub, "%I:%M:%S %p")
+
+# Pulling the first and last timestamp of the dems
+
+first_dem <- poll_data_nc %>%
+  filter(response == "Dem") %>%
+  arrange(desc(timestamp)) %>%
+  select(timestamp) %>%
+  slice(1) %>%
+  pull()
+
+last_dem <- poll_data_nc %>%
+  filter(response == "Dem") %>%
+  arrange(timestamp) %>%
+  select(timestamp) %>%
+  slice(1) %>%
+  pull()
+
+# Calculating the difference between the two times by first making the times numeric 
+# and then rounding to minutes
+
+time_difference <- -trunc(as.numeric(difftime(last_dem, first_dem, tz, units = "mins")))
+
+```
+/
+
+```{r question_two}
+
+# Reading in the data
+
+poll_data_ia <- read_csv("polls/elections-poll-ia03-3.csv") %>%
+  clean_names()
+
+# Selecting only the relevant data for the table. This includes filtering out the DO NOT READ responses 
+# from the polls
+
+# I had to spread the data in order to make the data table wider, and group together the matching 
+# responses from the people polled
+
+ia_chart_data <- poll_data_ia %>% 
+  select(response, likely, final_weight) %>%
+  filter(response != "[DO NOT READ] Don't know/Refused",  
+           likely != "[DO NOT READ] Don't know/Refused") %>%
+  group_by(likely, response) %>% 
+  summarise(value = sum(final_weight)) %>%
+  spread(key = response, value = value)
+
+# summing the total final_weight for each likley category in order to proprtly asses the weighting
+# and percents for each category
+
+ia_chart_data$total <- with(ia_chart_data, rowSums(ia_chart_data[2:8], na.rm = TRUE))
+
+# Actually calculate the percentage to be used in the chart
+# This does not use the actual number of dems/repubs/und polled, but instead uses the weights
+# that were given to each of them, which weighs each of their responses so they are accurate to the
+# population as a whole
+  
+  final_chart_data <- ia_chart_data %>% 
+    select(Dem, Rep, Und, total) %>% 
+    mutate(Dem = Dem/total) %>% 
+    mutate(Rep = Rep/total) %>% 
+    mutate(Und = Und/total) %>%
+    ungroup %>%
+    mutate(likely = as.factor(likely)) %>%
+    
+    # I am trying to reorder to rows to match what it is in the NYtimes article but can't seem
+    # to get it right. But here is the code I thought would work!
+    
+    mutate(likely = fct_relevel(likely, c("Already voted",
+                                          "Almost certain",
+                                          "Very likely",
+                                          "Somewhat Likely",
+                                          "Not very likely",
+                                          "Not at all likely")))
+
+  
+  # Piping the chart into gt
+  # This is where I was able to format the data into percents as well as hide the total column
+  # I also added source notes so to give the reader a better understanding of where the data came from
+  
+  final_chart_data %>%
+    gt(
+      fmt_percent(final_chart_data, vars(Dem, Rep, Und), rows = NULL, decimals = 2),
+      rowname_col = "likely",
+      ) %>%
+     cols_align(align = "center",
+        columns = TRUE) %>% 
+      fmt_percent(
+        columns = vars("Dem", "Rep", "Und"),
+        decimals = 0,
+        drop_trailing_zeros = TRUE
+      ) %>% 
+      fmt_missing(
+        columns = vars("Dem", "Rep", "Und"),
+        missing_text = "---") %>% 
+      cols_hide(
+        "total"
+      ) %>% 
+      tab_header(
+        title = "Intention of Voting",
+        subtitle = "Data from Iowa's Third Congressional District"
+      ) %>% 
+       tab_source_note(
+        source_note = md("Percentages are weighted to resemble likely voters; 
+                     the number of respondents in each subgroup is unweighted.")
+     ) %>% 
+     tab_source_note(
+        source_note = md("Undecided voters includes those who refused to answer."))
+      
+
+```
+/
+
+```{r question_three}
+
+# Creating a bowl with the required elements
+
+bowl <- tibble(ID = 1:5000, beads = c(rep("crimson", 1000), rep("white", 4000)))
+
+# Copied the code from Modern Dive which selects using a scoop size of 25 from my bowl, and repeats
+# that 5000 times, and then calculates the proprtion of red balls
+
+sample_data <- bowl %>% 
+  rep_sample_n(size = 25, reps = 5000) %>% 
+  group_by(replicate) %>% 
+  summarize(red = sum(beads == "crimson")) %>% 
+  mutate(prop_red = red / 25)
+
+# I wwanted to add a line which represented the average red bean proportion so I got that data here
+
+bead_ave <- bowl %>% 
+  rep_sample_n(size = 25, reps = 5000) %>% 
+  group_by(replicate) %>%
+  summarize(red = sum(beads == "crimson")) %>% 
+  mutate(prop_red = red / 25) %>% 
+  summarise(bead_ave = mean(prop_red))
+
+# The bead average needed to be changed to be a numeric type
+
+bead_ave <- as.numeric(bead_ave)
+
+
+# I kept my graph very similar to the Modern Diver rendition
+# To spruce it up a little, I changed the colors of the bars to make them stand out
+# and also addeed a line to show the average proportion of crimson balls in the selected scoop
+# I also adjusted the axis to better fit the data. 
+
+bead_ggplot <- ggplot(sample_data, aes(x = prop_red)) +
+  geom_histogram(binwidth = 0.05, boundary = 0.4, color = "white", fill = "pink") +
+  
+  # Adding in the vertical line here
+  
+  geom_vline(aes(xintercept = bead_ave, 
+             linetype = "Average Proportion of Crimson Balls"), 
+              color = "red", 
+              size = 1,
+             show_guide = TRUE) +
+  
+  # Adjusting the limits on the X axix to better fit the data
+  
+    scale_x_continuous(limits = c(0, 0.5)) +
+  
+  # Adjusting the labs and legend title
+  
+  scale_linetype(name = "Legend") +
+  labs(x = "Proportion of 25 Balls That Were Crimson", 
+       y = "Count",
+       title = "Proportion of Crimson Balls Randomly Selected from Bowl",
+       theme = "Average Proportion of Crimson Balls")
+
+# Printing out the ggplot
+
+bead_ggplot               
+
+```
+/
+```{r question_four}
+
+# The first thing I did was find what was being repeated in the ModernDive code.
+# Using purrr, my goal was to put all of the repetive functions into one big function which could be run once
+
+
+# Defined vector I want to iterate through
+# This is the only thing I want to have change in my giant function
+
+shovel_size = c(50, 100, 500, 1000)
+
+# Created a function to sample randomly and calculate the proportion of red
+# Used the code from modern dive as the inside part to do basically the same thing as the last question
+
+# Named my function sampler
+
+sampler_function <- function(n) {
+  
+  # First I included the rep_sample_n function from Modern Dive
+  
+  first_sample <- bowl %>% 
+    rep_sample_n(size = n, reps = 1000)
+    
+    # Then I fed the results into the function which calculates the percentage of red balls
+  
+    first_sample %>% 
+    group_by(replicate) %>% 
+    summarize(crimson = sum(beads == "crimson")) %>% 
+    mutate(prop_red = crimson / n) %>% 
+    mutate(size = n)
+}
+
+ # Now am going to map the function to the vector of shovel sizes that was created earlier
+
+final_data <- map_df(shovel_size, ~sampler_function(.x)) %>%
+  mutate(size = as.factor(size))
+
+# Creating the plot last, after the data frame has been created as suggested in piazza
+# Used a density plot and adjusted the alpha to make it more asthetically pleasing
+# Similar to assingment graph and the Data Visualization reading
+
+final_data_plot <- ggplot(final_data, mapping = aes(x = prop_red, fill = size, color = size)) +
+      geom_density(alpha = 0.3) +
+      labs(
+        x = "Proportion of Crimson Balls",
+        y = "Count", 
+       title = "Distribution of Proportion Crimson Balls using Various Shovel Sizes")
+
+# Printing out the data plot
+
+final_data_plot
+
+```

@@ -1,0 +1,447 @@
+---
+title: "Pset #5"
+author: "Elizabeth Pachus"
+date: "10/15/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+library(moderndive)
+library(infer)
+library(fs)
+library(googlesheets4)
+library(janitor)
+sheets_deauth()
+library(scales)
+library(lubridate)
+library(gt)
+library(scales)
+library(formattable)
+library(Rfast)
+library(ggplot2)
+library(tidyverse)
+```
+
+# Question 1
+
+
+
+```{r question_one_download, cache = TRUE}
+
+# Creating new directory
+
+dir_create("raw-data")
+
+# Downloading data
+
+download.file(
+  url = "https://raw.githubusercontent.com/TheUpshot/2018-live-poll-results/master/data/elections-poll-tx07-1.csv",
+  destfile = "raw-data/tx07_data.csv",
+  mode = "wb")
+
+```
+
+
+```{r question_one}
+
+# Reading CSV into an object and cleaning it up
+
+data_table <- read_csv("raw-data/tx07_data.csv") %>% 
+  clean_names()
+
+# Filtering out responses which aren't to be read
+# I then choose to explore the number of respondents for each age group for the different political parties because I'm very interested in the changing age democraphic of the various poltical parties in general
+# I grouped by response and ager in order to then summarize the number of different responses for each party and age group
+
+clean_data <- data_table %>% 
+  filter(!ager == "[DO NOT READ] Refused") %>% 
+  filter(!response == "[DO NOT READ] Refused") %>% 
+  group_by(response, ager) %>% 
+  summarise(age_percent = n())
+
+
+# I followed the graphic from DV very closey and decided a geom_col would be the best way to frame my data.
+# DV does not like stacked bar graphs, so I seperated them using the position dodge2 function
+# Choosing to fill by ager also creates a nice constract of color by age which makes the results stand out 
+
+graph <- ggplot(clean_data, aes(x = response, y = age_percent, fill = ager)) +
+    geom_col(position = "dodge2") +
+    labs(title = "Age of Respondents by Party Response",
+         subtitle = "Data from Texas' Seventh Congressional District",
+         x = "Political Party Reponse",
+         y = "Number of Respondents",
+         fill = "Age") +
+    scale_x_discrete(labels = c("Democrat", "Republican", "Undecided")) +
+    theme(plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5),
+          legend.position = "bottom")
+        
+
+# Printing out my graphic
+
+graph
+
+
+```
+
+# Question 2
+http://rpubs.com/elizabethpachus/TX07_Party_by_Age
+
+
+# Question 3
+```{r question_three, message = FALSE}
+
+# Running necessary code
+set.seed(9)
+
+# Reading in the data
+
+train_data <- read_sheet("https://docs.google.com/spreadsheets/d/14Zxd1-xdUoLfaCG6j55T9W2WvqchyBGJy3J2sAwTXPM/edit?usp=sharing") %>% 
+  clean_names()
+
+ # calculate a 95% bootstrap confidence interval, using the percentile method,
+
+  train_data_bootstrap <- train_data %>% 
+  
+  # Specify the data we are interested in
+  
+  specify(response = income) %>% 
+  
+  # Create sampling
+  
+  generate(reps = 1000, type = "bootstrap") %>% 
+  
+  # Calculate the mean
+  
+  calculate(stat = "mean") %>% 
+  
+  # Get the confidence interval
+    
+  get_confidence_interval(level = 0.95, type = "percentile")
+  
+
+# Selecting the relevant data to print out, as well as formating the numbers to match what is required
+
+madlib1 <- train_data_bootstrap %>% 
+  select("2.5%") %>% 
+  pull(1)
+
+
+madlib2 <- train_data_bootstrap %>% 
+  select("97.5%") %>% 
+  pull(1)
+
+# Formating the numbers to add the dollar sign and commas 
+
+madlib1 <- currency(madlib1, digits = 0)
+
+madlib2 <- currency(madlib2, digits = 0)
+
+```
+The 2.5% percentile of average income is `r madlib1 `.
+
+The 97.5% percentile of average income is `r madlib2 `.
+
+# Question 4
+
+```{r}
+
+# We can play around with these concepts by pretending that we don’t have a sample of size 100. Instead, split our sample into 5 groups of 20, using the ordering in the raw data. With each of these groupings, calculate an estimate of the percentage Republican and the associated 95% confidence interval.
+
+# Creating grouping systems
+
+trains2 <- train_data %>% 
+  mutate(group_number = rep(1:5, each = 20)) %>% 
+  group_by(group_number) %>% 
+  rep_sample_n(size = 100, replace = TRUE, reps = 1000) %>%
+  ungroup() %>%
+  group_by(group_number, replicate) %>% 
+  summarize(mean_repub = mean(republican))
+
+
+# plotting multiple density plots grouped by group_number
+# The y axis marks the number of occuraces for each mean_repub
+
+trains2_plot <- ggplot(trains2, aes(x = mean_repub)) +
+  geom_density() +
+  facet_wrap(~ group_number) +
+  labs(
+    title = "Average Percent Republicans",
+    subtitle = "Random Sampling of Original Group Size 20",
+    x = "Average Republican",
+    y = "Number of Republicans"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5))
+
+# Printing out the plot
+
+trains2_plot
+
+# Calculating the 95th percent confidence interval
+
+trains_table <- trains2 %>% 
+group_by(group_number) %>% 
+summarise(ave_high = quantile(mean_repub, prob = c(.975)),
+          ave_low = quantile(mean_repub, prob = c(.025)),
+          mean_rep = mean(mean_repub))
+          
+```
+
+\
+
+
+```{r question_four_table}
+
+# Piping my data from above into a gt table 
+
+trains_table %>% gt() %>% 
+  
+  # I choose to round my data to two decimal point for ease of interpreting the dat
+  
+  fmt_number(
+    columns = vars(ave_high,
+                   ave_low,
+                   mean_rep),
+                  decimals = 2
+    ) %>% 
+  
+  # Making the table look nice by adding labels to columns and titles
+  
+   cols_align(
+     align = "center",
+     columns = TRUE
+     ) %>%
+    tab_header(
+      title = "95th Confidence Interval of Proportion Republicans",
+      subtitle = "Data has been virtually resampled 1000 times per group"
+      ) %>% 
+    cols_label(
+      group_number = "Group Number",
+      ave_high = "97.5th Interval",
+      ave_low = "2.5th Interval",
+      mean_rep = "Average Proportion Republican"
+    ) 
+  
+
+```
+
+
+```{r roll_dice_functions}
+
+# Intializing Dice Roll Function
+
+dice <- function() {
+  
+  sample(6, size = 1)
+}
+
+# Creating Roll Dice Function
+
+dice_roll <- function(n) {
+  
+    vector <- map_int(1:n, ~ dice() + dice())
+}
+
+```
+
+```{r part_a}
+
+# Creating the columns in the table
+# Replication is a columns of integers, and throws is a column of lists containing three numbers
+
+replication <- 1:10
+throws <- map(1:10, ~dice_roll(n = 3))
+
+
+# Creating the tibble including relevant data
+
+x <- tibble(replication, throws)
+
+
+```
+
+```{r part_b}
+
+
+# Creating variable called first_seven which checks if the first roll of a dice was a seven
+
+# I decided to create functions outside of the map function instead of an aonymous function throughout this pset because I find it easier to organize and keep track of my work
+
+check_seven <- function(throws) {
+  
+  # checks to see if seven is the first number in the list
+  
+  ifelse(c(7) %in% first(unlist(throws)), TRUE, FALSE)
+}
+
+# Maping over the throws, and using the earlier function on ever element of the list
+
+first_seven_data <- map_lgl(throws, check_seven)
+
+# Adding in the value of first_seven to the table
+
+x  <- x %>% 
+  mutate(first_seven = first_seven_data)
+
+```
+
+```{r part_c}
+
+# Add inga variable to x called a_winner which is TRUE if at least one of the three throws is a 7 or an 11 and is FALSE otherwise
+
+check_winner <- function(throws){
+  
+  # This line in the function unlists the list and checks for any of the values which match and returns true if so
+  
+  ifelse(any(c(7, 11) %in% unlist(throws)), TRUE, FALSE)
+}
+
+# Mapping over the list column and running the function check_winner
+
+a_winner_data <- map(throws, check_winner)
+
+# Adding the data from the mapping function to my data table
+
+x <- x %>% 
+  mutate(a_winner = a_winner_data)
+
+```
+
+```{r part_e}
+
+# Creating a list column of three rolls and the replication index
+
+replication <- 1:10000
+throws1 <- map(1:10000, ~dice_roll(n = 3))
+
+# Putting the objects into my tibble
+
+z <- tibble(replication, throws1)
+
+# Creating a function which checks if any of the list contains something that would indiciate NOT a perfect thow
+# Returns false if not a perfect throw, true if it is perfect
+
+check_perfection <- function(throws1) {
+  ifelse(any(c(1,2,3,4,5,6,8,9,10,12) %in% unlist(throws1)), FALSE, TRUE)
+}
+
+# Mapping over the throws and running my function
+
+perfection_data <- map_lgl(throws1, check_perfection)
+
+# Adding the above data to my tibble
+# Then filtering for only results which were considered perfection
+# Counting the number of perfect throws and dividing by the total number of throws
+
+madlib3 <- z %>% 
+  mutate(perfection = perfection_data) %>% 
+  filter(perfection == TRUE) %>% 
+  nrow() / 10000 %>% 
+  as.numeric()
+
+# Formating the number
+
+madlib3 <- percent(madlib3, )
+
+
+```
+
+```{r part_f}
+
+# Creating the required objects for the problem
+# A vector of 1000 throws and a column list of ten throws, 1,000 times over
+
+replication <- 1:1000
+
+throws2 <- map(1:1000, ~dice_roll(n = 10))
+
+# Creating a tible which contain these two objects
+
+fair_dice <- tibble(replication, throws2)
+
+
+# Calculating the score of side A
+
+side_a <- function(throws2) {
+  
+  # Calculating the second highest of the first four throws
+  # First I selected the top four throws, then arranged them, then selected the second value in the vector
+  
+  fake_throw <- throws2 %>% 
+  head(4) %>% 
+  sort(decreasing = TRUE)
+  fake_throw[2]
+}
+
+
+# Calculating the score of side B by finding the median of the last six throws, then adding one
+
+side_b <- function(throws2){
+  median(throws2[5:10]) + 1
+}
+
+# Mapping over the throws and running my above functions on the data
+
+side_a_data <- map_dbl(throws2, side_a)
+
+side_b_data <- map_dbl(throws2, side_b)
+
+# Adding desired rows to the data table
+
+fair_dice <- fair_dice %>% 
+  mutate(side_a = side_a_data) %>% 
+  mutate(side_b = side_b_data) %>% 
+  
+  # Creating rows which calculated the winners of each replicate of throws
+  # Created a row which calculated if a replicate was a tie
+  
+  mutate(winner = ifelse((side_a > side_b), "A", "B")) %>% 
+  mutate(tie = ifelse((side_a == side_b), "TRUE", "FALSE"))
+
+
+# Selecting only the winners, then filtering the times that A won and dividing it by the total number of replications
+# This will give me the percent of times that A won
+
+madlib4 <- fair_dice %>% 
+  select(winner) %>% 
+  filter(winner == "A") %>% 
+  nrow() / 1000 
+
+
+# Then I am going to format the percent
+
+madlib4 <- madlib4 %>% 
+  as.numeric() %>%
+  percent()
+  
+# I created an ifelse statement which evaluates if the percentage of times that A won was greater than 50
+# if this is true, it means that A won more times, and therefore they are the winner whic is what will be printed
+
+madlib4 <- ifelse(madlib4 > 50, "A", "B")
+
+
+# To calculate the percentage of ties, I first filtered for only results in which A and B had the same score, meaning there was a TRUE in the tie column
+# I then counted the total number of ties and divided it by the number of replications
+  
+  madlib5 <- fair_dice %>% 
+    filter(tie == "TRUE") %>% 
+    nrow() / 1000
+  
+# Formating the answer to be a nice percent
+  
+  madlib5 <- madlib5 %>% 
+    as.numeric %>% 
+    percent()
+
+```
+
+
+
+
+
+
+
+
+
